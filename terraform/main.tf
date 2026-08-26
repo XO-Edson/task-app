@@ -169,8 +169,8 @@ resource "aws_ecr_repository" "app" {
 }
 
 resource "aws_secretsmanager_secret" "db_password" {
-  name                    = "devops-task-app/db-password"
-  description             = "PostgreSQL password for the DevOps task application"
+  name        = "devops-task-app/db-password"
+  description = "PostgreSQL password for the DevOps task application"
 
   tags = {
     Name        = "devops-task-db-password"
@@ -229,6 +229,7 @@ resource "aws_iam_role_policy_attachment" "read_db_secret" {
   policy_arn = aws_iam_policy.read_db_secret.arn
 }
 
+
 resource "aws_iam_instance_profile" "app" {
   name = "devops-task-app-instance-profile"
   role = aws_iam_role.app.name
@@ -260,6 +261,7 @@ resource "aws_iam_role" "github_actions" {
     Statement = [
       {
         Effect = "Allow"
+
         Principal = {
           Federated = aws_iam_openid_connect_provider.github.arn
         }
@@ -269,10 +271,7 @@ resource "aws_iam_role" "github_actions" {
         Condition = {
           StringEquals = {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          }
-
-          StringLike = {
-            "token.actions.githubusercontent.com:sub" = "repo:XO-Edson/task-app:ref:refs/heads/main"
+            "token.actions.githubusercontent.com:sub" = "repo:XO-Edson@127622832/task-app@1344985305:ref:refs/heads/main"
           }
         }
       }
@@ -319,7 +318,88 @@ resource "aws_iam_policy" "github_actions_ecr" {
   })
 }
 
+resource "aws_iam_policy" "github_actions_ssm" {
+  name        = "devops-task-app-github-actions-ssm"
+  description = "Allow GitHub Actions to deploy to the EC2 instance through SSM"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Effect = "Allow"
+
+        Action = [
+          "ssm:SendCommand"
+        ]
+
+        Resource = [
+          "arn:aws:ssm:eu-central-1::document/AWS-RunShellScript",
+          aws_instance.app.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+
+        Action = [
+          "ssm:GetCommandInvocation"
+        ]
+
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_ssm" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.github_actions_ssm.arn
+}
+
+resource "aws_iam_role_policy_attachment" "ssm" {
+  role       = aws_iam_role.app.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
 resource "aws_iam_role_policy_attachment" "github_actions_ecr" {
   role       = aws_iam_role.github_actions.name
   policy_arn = aws_iam_policy.github_actions_ecr.arn
+}
+
+resource "aws_iam_policy" "ecr_pull" {
+  name        = "devops-task-app-ecr-pull"
+  description = "Allow EC2 to pull the application image from ECR"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Effect = "Allow"
+
+        Action = [
+          "ecr:GetAuthorizationToken"
+        ]
+
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:DescribeRepositories"
+        ]
+
+        Resource = aws_ecr_repository.app.arn
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ecr_pull" {
+  role       = aws_iam_role.app.name
+  policy_arn = aws_iam_policy.ecr_pull.arn
 }

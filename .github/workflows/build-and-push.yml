@@ -51,29 +51,28 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
+          set -eux
+
           mkdir -p ~/.ssh
 
-          echo "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
 
-          ssh -i ~/.ssh/deploy_key "$EC2_USER@$EC2_HOST" << EOF
-            set -e
+          echo "Testing SSH connection..."
 
-            cd ~/devops-task-app
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=10 \
+            "$EC2_USER@$EC2_HOST" \
+            "echo 'SSH connection successful'"
 
-            export IMAGE_TAG=$IMAGE_TAG
+          echo "Starting deployment..."
 
-            aws ecr get-login-password \
-              --region $AWS_REGION | \
-              docker login \
-              --username AWS \
-              --password-stdin \
-              $ECR_REGISTRY
-
-            docker compose pull app
-            docker compose up -d app
-
-            docker image prune -f
-          EOF
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=yes \
+            "$EC2_USER@$EC2_HOST" \
+            "export IMAGE_TAG='$IMAGE_TAG' && export ECR_REGISTRY='$ECR_REGISTRY' && export AWS_REGION='$AWS_REGION' && cd ~/devops-task-app && aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin \$ECR_REGISTRY && docker compose pull app && docker compose up -d app && docker image prune -f"
